@@ -25,7 +25,6 @@
  */
 
 #include "requests.h"
-
 static int IS_FIRST = 1;
 
 /*
@@ -36,7 +35,7 @@ static char *user_agent(void);
 static int check_ok(long code);
 static CURLcode requests_pt(CURL *curl, req_t *req, char *url, char *data,
                             char **custom_hdrv, int custom_hdrc, int put_flag);
-static int hdrv_append(char ***hdrv, int *hdrc, char *new);
+static int hdrv_append(char ***hdrv, int *hdrc, char *_new);
 static CURLcode process_custom_headers(struct curl_slist **slist,
                                        req_t *req, char **custom_hdrv,
                                        int custom_hdrc);
@@ -62,15 +61,15 @@ CURL *requests_init(req_t *req)
     req->resp_hdrc = 0;
     req->ok = -1;
 
-    req->text = calloc(1, 1);
+    req->text = (char*) calloc(1, 1);
     if (req->text == NULL)
         return NULL;
 
-    req->req_hdrv = calloc(1, 1);
+    req->req_hdrv = (char**) calloc(1, 1);
     if (req->req_hdrv == NULL)
         return NULL;
 
-    req->resp_hdrv = calloc(1, 1);
+    req->resp_hdrv = (char**) calloc(1, 1);
     if (req->resp_hdrv == NULL)
         return NULL;
 
@@ -108,22 +107,16 @@ static size_t resp_callback(char *content, size_t size, size_t nmemb,
                             req_t *userdata)
 {
     size_t real_size = size * nmemb;
-
-    /* extra 1 is for NULL terminator */
-    userdata->text = realloc(userdata->text, userdata->size + real_size + 1);
+	long original_userdata_size = userdata->size;
+	
+	/* extra 1 is for NULL terminator */
+    userdata->text = (char*) realloc(userdata->text, userdata->size + real_size + 1);
     if (userdata->text == NULL)
         return -1;
 
     userdata->size += real_size;
-
-    /* create NULL terminated version of `content' */
-    char *responsetext = strndup(content, real_size + 1);
-    if (responsetext == NULL)
-        return -1;
-
-    strncat(userdata->text, responsetext, real_size);
-
-    free(responsetext);
+	/* concatenate userdata->text with the response content */
+	memcpy(userdata->text + original_userdata_size, content, real_size);
     return real_size;
 }
 
@@ -342,10 +335,10 @@ static CURLcode requests_pt(CURL *curl, req_t *req, char *url, char *data,
     } else {
         /* content length header defaults to -1, which causes request to fail
            sometimes, so we need to manually set it to 0 */
-        char *cl_header = "Content-Length: 0";
+        char *cl_header = (char*) "Content-Length: 0";
         slist = curl_slist_append(slist, cl_header);
         if (slist == NULL)
-            return -1;
+            return (CURLcode) -1;
         if (custom_hdrv == NULL)
             curl_easy_setopt(curl, CURLOPT_HTTPHEADER, slist);
 
@@ -406,7 +399,7 @@ static CURLcode process_custom_headers(struct curl_slist **slist, req_t *req,
         /* add header to request */
         *slist = curl_slist_append(*slist, custom_hdrv[i]);
         if (*slist == NULL)
-            return -1;
+            return (CURLcode) -1;
         if (hdrv_append(&req->req_hdrv, &req->req_hdrc, custom_hdrv[i]))
             return CURLE_OUT_OF_MEMORY;
     }
@@ -422,17 +415,17 @@ static CURLcode process_custom_headers(struct curl_slist **slist, req_t *req,
  *
  * @hdrv: pointer to the char* array
  * @hdrc: length of `hdrv' (NOTE: this value gets updated)
- * @new: char* to append
+ * @_new: char* to append
  */
-static int hdrv_append(char ***hdrv, int *hdrc, char *new)
+static int hdrv_append(char ***hdrv, int *hdrc, char *_new)
 {
     /* current array size in bytes */
     size_t current_size = *hdrc * sizeof(char*);
-    char *newdup = strndup(new, strlen(new));
+    char *newdup = strndup(_new, strlen(_new));
     if (newdup == NULL)
         return -1;
 
-    *hdrv = realloc(*hdrv, current_size + sizeof(char*));
+    *hdrv = (char**) realloc(*hdrv, current_size + sizeof(char*));
     if (*hdrv == NULL)
         return -1;
     (*hdrc)++;
@@ -453,6 +446,7 @@ static void common_opt(CURL *curl, req_t *req)
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, req);
     curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, header_callback);
     curl_easy_setopt(curl, CURLOPT_HEADERDATA, req);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
 }
 
 /*
